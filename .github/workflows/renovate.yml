@@ -1,4 +1,4 @@
-name: Renovate
+name: Validate Renovate
 
 on:
   pull_request:
