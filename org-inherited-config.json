@@ -6,7 +6,7 @@
     "customManagers": [
         {
             "customType": "regex",
-            "fileMatch": [
+            "managerFilePatterns": [
                 "image-versions(\\.[^.]+)?\\.(yaml|yml)$"
             ],
             "matchStrings": [
