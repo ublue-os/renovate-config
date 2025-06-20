@@ -2,8 +2,11 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "onboarding": false,
   "platform": "github",
-  "autodiscover": true,
-  "requireConfig": "optional",
+  "autodiscover": false,
+  "repositories": [
+    "ublue-os/bluefin-lts"
+  ],
+  "requireConfig": "required",
   "inheritConfig": true,
   "inheritConfigRepoName": "{{parentOrg}}/renovate-config",
   "inheritConfigFileName": "org-inherited-config.json",
