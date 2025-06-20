@@ -4,7 +4,7 @@
   "platform": "github",
   "autodiscover": false,
   "repositories": [
-    "ublue-os/bluefin-lts"
+    "ublue-os/toolboxes"
   ],
   "requireConfig": "required",
   "inheritConfig": true,
