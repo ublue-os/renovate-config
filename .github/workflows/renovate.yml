@@ -1,33 +1,50 @@
-name: Validate Renovate
+name: Renovate Self-Hosted
 
 on:
   pull_request:
+    branches:
+      - main
     paths:
       - ".github/workflows/renovate.yml"
-      - ".github/renovate.json"
-      - ".github/renovate.json5"
-      - "renovate.json"
-      - "renovate.json5"
       - "org-inherited-config.json"
+  schedule:
+    # Every 60 minutes
+    - cron: "*/60 * * * *"
+  workflow_dispatch:
+    inputs:
+      log-level:
+        description: "Set the Renovate log level (default: info)"
+        required: false
+        default: info
+        type: choice
+        options:
+          - info
+          - debug
 
 jobs:
-  validate:
+  renovate:
     runs-on: ubuntu-latest
     steps:
+      - name: Get Token
+        id: get-token
+        uses: actions/create-github-app-token@db3cdf40984fe6fd25ae19ac2bf2f4886ae8d959 # v2
+        with:
+          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: latest
+          fetch-depth: 1
+          token: ${{ steps.get-token.outputs.token }}
+          persist-credentials: false
 
-      # Hosted Renovate should use the latest available version, so always
-      # install the newest version of Renovate
-      - name: Install dependencies
-        run: npm install -g renovate
-
-      - name: Validate Renovate config
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@19ba43e1bc58ed95c0ba205dee8b1bc0f27b630d # v42.0.0
         env:
-          CONFIG_FILE: 'org-inherited-config.json'
-        run: renovate-config-validator --strict ${CONFIG_FILE}
+          RENOVATE_DRY_RUN: ${{ github.event_name == 'pull_request' && 'full' }}
+          LOG_LEVEL: ${{ github.event.inputs.log-level || 'info' }}
+        with:
+          token: ${{ steps.get-token.outputs.token }}
+          configurationFile: ./renovate-config.json

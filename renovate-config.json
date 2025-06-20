@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "onboarding": false,
+  "platform": "github",
+  "autodiscover": false,
+  "repositories": [
+    "ublue-os/renovate-test"
+  ],
+  "requireConfig": "optional",
+  "inheritConfig": true,
+  "inheritConfigRepoName": "{{parentOrg}}/renovate-config",
+  "inheritConfigFileName": "org-inherited-config.json",
+  "inheritConfigStrict": true
+}
