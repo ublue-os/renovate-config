@@ -4,7 +4,10 @@
   "platform": "github",
   "autodiscover": false,
   "repositories": [
-    "ublue-os/toolboxes"
+    "ublue-os/toolboxes",
+    "ublue-os/main",
+    "ublue-os/bluefin",
+    "ublue-os/aurora"
   ],
   "requireConfig": "required",
   "inheritConfig": true,
