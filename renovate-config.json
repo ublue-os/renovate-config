@@ -2,13 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "onboarding": false,
   "platform": "github",
-  "autodiscover": false,
-  "repositories": [
-    "ublue-os/toolboxes",
-    "ublue-os/main",
-    "ublue-os/bluefin",
-    "ublue-os/aurora"
-  ],
+  "autodiscover": true,
   "requireConfig": "required",
   "inheritConfig": true,
   "inheritConfigRepoName": "{{parentOrg}}/renovate-config",
