@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
 
       - name: Self-hosted Renovate
-        uses: renovatebot/github-action@bdfd950c25796ebf1aa0c127ad55b69a14b04f69 # v43.0.3
+        uses: renovatebot/github-action@e3c9b63dabe11d616d9a5e9c19064ec6560369c0 # v43.0.6
         env:
           RENOVATE_DRY_RUN: ${{ github.event_name == 'pull_request' && 'full' }}
           LOG_LEVEL: ${{ github.event.inputs.log-level || 'info' }}
