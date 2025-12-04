@@ -4,7 +4,7 @@
   "platform": "github",
   "autodiscover": true,
   "requireConfig": "required",
-  "inheritConfig": false,
+  "inheritConfig": true,
   "inheritConfigRepoName": "{{parentOrg}}/renovate-config",
   "inheritConfigFileName": "org-inherited-config.json",
   "inheritConfigStrict": true
