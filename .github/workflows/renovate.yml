@@ -44,7 +44,7 @@ jobs:
         uses: renovatebot/github-action@e23f4d9675532445118c886434f5a34292b630b4 # v46.0.2
         env:
           RENOVATE_DRY_RUN: ${{ github.event_name == 'pull_request' && 'full' }}
-          LOG_LEVEL: ${{ github.event.inputs.log-level || 'info' }}
+          LOG_LEVEL: ${{ github.event_name == 'pull_request' && 'debug' || github.event.inputs.log-level || 'info' }}
         with:
           token: ${{ steps.get-token.outputs.token }}
           configurationFile: ./renovate-config.json
