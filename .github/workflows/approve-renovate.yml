@@ -113,9 +113,19 @@ jobs:
           approve_as() {
             local token="$1" bot_login="$2" repo="$3" number="$4"
 
+            local reviews_response
+            if ! reviews_response=$(GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}/reviews" 2>&1); then
+              if echo "${reviews_response}" | grep -qF "403"; then
+                echo "  WARN ${bot_login}: app not installed on ${repo}"
+                return 0
+              fi
+              echo "  ERROR ${bot_login}: ${reviews_response}"
+              return 1
+            fi
+
             local already_approved
             already_approved=$(
-              GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}/reviews" \
+              echo "${reviews_response}" \
                 | jq --arg bot "${bot_login}" \
                 '[.[] | select(.user.login == $bot and .state == "APPROVED")] | length'
             )
