@@ -135,11 +135,16 @@ jobs:
               return 0
             fi
 
-            if GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}/reviews" \
-              --method POST --field event=APPROVE > /dev/null 2>&1; then
+            local approve_response
+            if approve_response=$(GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}/reviews" \
+              --method POST --field event=APPROVE 2>&1); then
               echo "  OK ${bot_login}"
             else
-              echo "  ERROR ${bot_login}: failed to approve"
+              if echo "${approve_response}" | grep -qF "403"; then
+                echo "  WARN ${bot_login}: no write access to ${repo}"
+                return 0
+              fi
+              echo "  ERROR ${bot_login}: ${approve_response}"
               return 1
             fi
           }
