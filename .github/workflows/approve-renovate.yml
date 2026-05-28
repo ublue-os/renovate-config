@@ -1,0 +1,147 @@
+name: Approve Renovate PRs
+
+on:
+  schedule:
+    - cron: "0,30 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "List PRs without approving"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      prs: ${{ steps.find.outputs.prs }}
+    steps:
+      - name: Generate token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ secrets.APPROVE_BOT_1_CLIENT_ID }}
+          private-key: ${{ secrets.APPROVE_BOT_1_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Find Renovate PRs with automerge enabled
+        id: find
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          RENOVATE_AUTHOR: "app/ubot-7274"
+          AUTOMERGE_MARKER: "**Automerge**: Enabled"
+        run: |
+          set -uo pipefail
+
+          search_results=$(
+            gh search prs \
+              --owner "${GITHUB_REPOSITORY_OWNER}" \
+              --author "${RENOVATE_AUTHOR}" \
+              --archived=false \
+              --state open \
+              --limit 200 \
+              --json repository,number \
+              --jq '.[] | [.repository.nameWithOwner, (.number | tostring)] | @tsv'
+          )
+
+          result_count=$(echo "${search_results}" | grep -c . || true)
+          echo "Found ${result_count} open PRs by ${RENOVATE_AUTHOR}"
+          if [[ "${result_count}" -ge 200 ]]; then
+            echo "WARNING: hit 200-result limit, some PRs may be missed"
+          fi
+
+          prs="[]"
+          while IFS=$'\t' read -r repo number; do
+            [[ -z "${repo}" ]] && continue
+
+            if ! body=$(gh pr view "${number}" --repo "${repo}" --json body --jq '.body' 2>/dev/null); then
+              echo "SKIP ${repo}#${number}: not accessible"
+              continue
+            fi
+
+            if ! echo "${body}" | grep -qF "${AUTOMERGE_MARKER}"; then
+              echo "SKIP ${repo}#${number}: automerge not enabled"
+              continue
+            fi
+
+            echo "ELIGIBLE ${repo}#${number}"
+            prs=$(echo "${prs}" | jq -c --arg r "${repo}" --arg n "${number}" '. + [{"repo": $r, "number": $n}]')
+          done <<< "${search_results}"
+
+          eligible=$(echo "${prs}" | jq length)
+          echo "Eligible for approval: ${eligible}"
+          echo "prs=${prs}" >> "${GITHUB_OUTPUT}"
+
+  approve:
+    needs: discover
+    if: ${{ needs.discover.outputs.prs != '[]' && inputs.dry-run != true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate token (bot 1)
+        id: token-1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ secrets.APPROVE_BOT_1_CLIENT_ID }}
+          private-key: ${{ secrets.APPROVE_BOT_1_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Generate token (bot 2)
+        id: token-2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ secrets.APPROVE_BOT_2_CLIENT_ID }}
+          private-key: ${{ secrets.APPROVE_BOT_2_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Approve PRs
+        env:
+          GH_TOKEN_1: ${{ steps.token-1.outputs.token }}
+          GH_TOKEN_2: ${{ steps.token-2.outputs.token }}
+          PRS: ${{ needs.discover.outputs.prs }}
+        run: |
+          set -uo pipefail
+
+          approve_as() {
+            local token="$1" repo="$2" number="$3"
+
+            local bot_login
+            bot_login=$(GH_TOKEN="${token}" gh api /app --jq '.slug + "[bot]"')
+
+            local already_approved
+            already_approved=$(
+              GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}/reviews" \
+                | jq --arg bot "${bot_login}" \
+                '[.[] | select(.user.login == $bot and .state == "APPROVED")] | length'
+            )
+
+            if [[ "${already_approved}" -gt 0 ]]; then
+              echo "  SKIP ${bot_login}: already approved"
+              return 0
+            fi
+
+            if GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}/reviews" \
+              --method POST --field event=APPROVE > /dev/null; then
+              echo "  OK ${bot_login}"
+            else
+              echo "  ERROR ${bot_login}: failed to approve"
+              return 1
+            fi
+          }
+
+          errors=0
+          while read -r pr; do
+            repo=$(echo "${pr}" | jq -r '.repo')
+            number=$(echo "${pr}" | jq -r '.number')
+            echo "APPROVE ${repo}#${number}"
+
+            approve_as "${GH_TOKEN_1}" "${repo}" "${number}" || errors=$((errors + 1))
+            approve_as "${GH_TOKEN_2}" "${repo}" "${number}" || errors=$((errors + 1))
+          done < <(echo "${PRS}" | jq -c '.[]')
+
+          if [[ "${errors}" -gt 0 ]]; then
+            exit 1
+          fi
