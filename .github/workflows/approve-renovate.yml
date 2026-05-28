@@ -105,11 +105,13 @@ jobs:
         run: |
           set -uo pipefail
 
-          approve_as() {
-            local token="$1" repo="$2" number="$3"
+          bot_login_1=$(GH_TOKEN="${GH_TOKEN_1}" gh api graphql -f query='{ viewer { login } }' --jq '.data.viewer.login')
+          bot_login_2=$(GH_TOKEN="${GH_TOKEN_2}" gh api graphql -f query='{ viewer { login } }' --jq '.data.viewer.login')
+          echo "Bot 1: ${bot_login_1}"
+          echo "Bot 2: ${bot_login_2}"
 
-            local bot_login
-            bot_login=$(GH_TOKEN="${token}" gh api /app --jq '.slug + "[bot]"')
+          approve_as() {
+            local token="$1" bot_login="$2" repo="$3" number="$4"
 
             local already_approved
             already_approved=$(
@@ -124,7 +126,7 @@ jobs:
             fi
 
             if GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}/reviews" \
-              --method POST --field event=APPROVE > /dev/null; then
+              --method POST --field event=APPROVE > /dev/null 2>&1; then
               echo "  OK ${bot_login}"
             else
               echo "  ERROR ${bot_login}: failed to approve"
@@ -138,8 +140,8 @@ jobs:
             number=$(echo "${pr}" | jq -r '.number')
             echo "APPROVE ${repo}#${number}"
 
-            approve_as "${GH_TOKEN_1}" "${repo}" "${number}" || errors=$((errors + 1))
-            approve_as "${GH_TOKEN_2}" "${repo}" "${number}" || errors=$((errors + 1))
+            approve_as "${GH_TOKEN_1}" "${bot_login_1}" "${repo}" "${number}" || errors=$((errors + 1))
+            approve_as "${GH_TOKEN_2}" "${bot_login_2}" "${repo}" "${number}" || errors=$((errors + 1))
           done < <(echo "${PRS}" | jq -c '.[]')
 
           if [[ "${errors}" -gt 0 ]]; then
