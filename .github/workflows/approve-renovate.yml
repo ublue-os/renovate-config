@@ -157,6 +157,19 @@ jobs:
 
             approve_as "${GH_TOKEN_1}" "${bot_login_1}" "${repo}" "${number}" || errors=$((errors + 1))
             approve_as "${GH_TOKEN_2}" "${bot_login_2}" "${repo}" "${number}" || errors=$((errors + 1))
+
+            auto_merge_enabled=$(GH_TOKEN="${GH_TOKEN_1}" gh pr view "${number}" --repo "${repo}" --json autoMergeRequest --jq '.autoMergeRequest != null' 2>/dev/null || echo "false")
+            if [[ "${auto_merge_enabled}" != "true" ]]; then
+              echo "  ENABLING AUTO-MERGE ${repo}#${number}"
+              if GH_TOKEN="${GH_TOKEN_1}" gh pr merge "${number}" --repo "${repo}" --auto --squash 2>/dev/null || \
+                 GH_TOKEN="${GH_TOKEN_1}" gh pr merge "${number}" --repo "${repo}" --auto --merge 2>/dev/null || \
+                 GH_TOKEN="${GH_TOKEN_1}" gh pr merge "${number}" --repo "${repo}" --auto --rebase 2>/dev/null || \
+                 GH_TOKEN="${GH_TOKEN_1}" gh pr merge "${number}" --repo "${repo}" --auto 2>/dev/null; then
+                echo "  OK auto-merge"
+              else
+                echo "  WARN: could not enable auto-merge on ${repo}#${number}"
+              fi
+            fi
           done < <(echo "${PRS}" | jq -c '.[]')
 
           if [[ "${errors}" -gt 0 ]]; then
