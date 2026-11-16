@@ -33,6 +33,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           RENOVATE_AUTHOR: "app/ubot-7274"
+          RENOVATE_COMMIT_AUTHOR: "ubot-7274[bot]"
           AUTOMERGE_MARKER: "**Automerge**: Enabled"
         run: |
           set -uo pipefail
@@ -58,18 +59,51 @@ jobs:
           while IFS=$'\t' read -r repo number; do
             [[ -z "${repo}" ]] && continue
 
-            if ! body=$(gh pr view "${number}" --repo "${repo}" --json body --jq '.body' 2>/dev/null); then
+            if ! pr_json=$(gh pr view "${number}" --repo "${repo}" --json body,headRefOid 2>/dev/null); then
               echo "SKIP ${repo}#${number}: not accessible"
               continue
             fi
+            body=$(printf '%s' "${pr_json}" | jq -r '.body')
+            head_sha=$(printf '%s' "${pr_json}" | jq -r '.headRefOid')
 
             if ! echo "${body}" | grep -qF "${AUTOMERGE_MARKER}"; then
               echo "SKIP ${repo}#${number}: automerge not enabled"
               continue
             fi
 
-            echo "ELIGIBLE ${repo}#${number}"
-            prs=$(echo "${prs}" | jq -c --arg r "${repo}" --arg n "${number}" '. + [{"repo": $r, "number": $n}]')
+            if ! commits_json=$(gh api --paginate --slurp "repos/${repo}/pulls/${number}/commits" 2>/dev/null); then
+              echo "SKIP ${repo}#${number}: failed to fetch commits"
+              continue
+            fi
+
+            commit_count=$(printf '%s' "${commits_json}" | jq '[.[][]] | length')
+            if [[ "${commit_count}" -eq 0 ]]; then
+              echo "SKIP ${repo}#${number}: no commits found"
+              continue
+            fi
+
+            non_renovate_commits=$(
+              printf '%s' "${commits_json}" | jq --arg bot "${RENOVATE_COMMIT_AUTHOR}" '
+                [.[][] | select(
+                  ((.author.login // "") != $bot) or
+                  (((.committer.login // "") != "web-flow") and ((.committer.login // "") != $bot)) or
+                  (.commit.verification.verified != true)
+                )] | length
+              '
+            )
+            if [[ "${non_renovate_commits}" -gt 0 ]]; then
+              echo "SKIP ${repo}#${number}: contains non-Renovate commit(s)"
+              continue
+            fi
+
+            head_vetted=$(printf '%s' "${commits_json}" | jq --arg h "${head_sha}" '[.[][]] | any(.sha == $h)')
+            if [[ "${head_vetted}" != "true" ]]; then
+              echo "SKIP ${repo}#${number}: head ${head_sha:0:7} not in fetched commits"
+              continue
+            fi
+
+            echo "ELIGIBLE ${repo}#${number} (${head_sha:0:7})"
+            prs=$(echo "${prs}" | jq -c --arg r "${repo}" --arg n "${number}" --arg s "${head_sha}" '. + [{"repo": $r, "number": $n, "head_sha": $s}]')
           done <<< "${search_results}"
 
           eligible=$(echo "${prs}" | jq length)
@@ -111,7 +145,7 @@ jobs:
           echo "Bot 2: ${bot_login_2}"
 
           approve_as() {
-            local token="$1" bot_login="$2" repo="$3" number="$4"
+            local token="$1" bot_login="$2" repo="$3" number="$4" head_sha="$5"
 
             local reviews_response
             if ! reviews_response=$(GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}/reviews" 2>&1); then
@@ -135,13 +169,28 @@ jobs:
               return 0
             fi
 
+            local current_head
+            if ! current_head=$(GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}" --jq '.head.sha' 2>&1); then
+              echo "  ERROR ${bot_login}: ${current_head}"
+              return 1
+            fi
+
+            if [[ "${current_head}" != "${head_sha}" ]]; then
+              echo "  SKIP ${bot_login}: PR head moved to ${current_head:0:7} since discovery"
+              return 0
+            fi
+
             local approve_response
             if approve_response=$(GH_TOKEN="${token}" gh api "repos/${repo}/pulls/${number}/reviews" \
-              --method POST --field event=APPROVE 2>&1); then
+              --method POST --field commit_id="${head_sha}" --field event=APPROVE 2>&1); then
               echo "  OK ${bot_login}"
             else
               if echo "${approve_response}" | grep -qF "403"; then
                 echo "  WARN ${bot_login}: no write access to ${repo}"
+                return 0
+              fi
+              if echo "${approve_response}" | grep -qF "422"; then
+                echo "  SKIP ${bot_login}: PR head changed since discovery"
                 return 0
               fi
               echo "  ERROR ${bot_login}: ${approve_response}"
@@ -153,10 +202,11 @@ jobs:
           while read -r pr; do
             repo=$(echo "${pr}" | jq -r '.repo')
             number=$(echo "${pr}" | jq -r '.number')
-            echo "APPROVE ${repo}#${number}"
+            head_sha=$(echo "${pr}" | jq -r '.head_sha')
+            echo "APPROVE ${repo}#${number} (${head_sha:0:7})"
 
-            approve_as "${GH_TOKEN_1}" "${bot_login_1}" "${repo}" "${number}" || errors=$((errors + 1))
-            approve_as "${GH_TOKEN_2}" "${bot_login_2}" "${repo}" "${number}" || errors=$((errors + 1))
+            approve_as "${GH_TOKEN_1}" "${bot_login_1}" "${repo}" "${number}" "${head_sha}" || errors=$((errors + 1))
+            approve_as "${GH_TOKEN_2}" "${bot_login_2}" "${repo}" "${number}" "${head_sha}" || errors=$((errors + 1))
           done < <(echo "${PRS}" | jq -c '.[]')
 
           if [[ "${errors}" -gt 0 ]]; then
